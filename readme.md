@@ -26,21 +26,25 @@ Operates on an internal whitelist of servers in each region, randomly assigns ga
 			minimist
 			wordwrap
 
-# Running
+# Setup
 
+	(clone this repo)
 	npm install
 	cp config-example-dev.json config.json
+
+# Running
+
 	node index.js
 
 # Config
 
 Handled by an out-of-repo config file; examples configs are in `config-example-*.json`
 
-- `"port"`
+- `"port"` <br>
 	the outbound port to serve content on
-- `"cache"`
+- `"cache"` <br>
 	cache control header (consider "no-cache, must-revalidate" for dev, ~3600 for prod)
-- `"behind_proxy"`
+- `"behind_proxy"` <br>
 	whether we're behind a proxy or not; determines where a client's IP is fetched from (the socket, or x-forwarded-for header)
 
 # License
