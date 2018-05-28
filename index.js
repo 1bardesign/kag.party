@@ -22,6 +22,40 @@ for (let name in defaults) {
 //client class
 let KAGPartyClient = {};
 
+//queue joining algorithm
+/*
+(separate per-mode)
+
+if(no players)
+{
+	start queue
+	start timer at 5min
+}
+if(not many players)
+{
+	join single queue (ignore region)
+}
+else if(passed threshold for multiple queues)
+{
+	if(only one queue)
+	{
+		re-cluster players
+	}
+
+	join queue with most region affinity
+}
+
+if(queue hit play threshold or queue timer expired)
+{
+	start game!
+}
+else if(queue hit timer threshold)
+{
+	cut timer to 1min
+}
+
+*/
+
 //websocket server
 const wss = new WebSocket.Server({ noServer: true });
 
