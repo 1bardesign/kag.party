@@ -1,0 +1,5 @@
+{
+	"port": 8080,
+	"cache": 3600,
+	"behind_proxy": true
+}

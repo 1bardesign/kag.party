@@ -19,10 +19,29 @@ Operates on an internal whitelist of servers in each region, randomly assigns ga
 	node
 	ws
 		async-limiter
+	node-static
+		colors
+		mime
+		optimist
+			minimist
+			wordwrap
 
 # Running
 
-npm start
+	npm install
+	cp config-example-dev.json config.json
+	node index.js
+
+# Config
+
+Handled by an out-of-repo config file; examples configs are in `config-example-*.json`
+
+- `"port"`
+	the outbound port to serve content on
+- `"cache"`
+	cache control header (consider "no-cache, must-revalidate" for dev, ~3600 for prod)
+- `"behind_proxy"`
+	whether we're behind a proxy or not; determines where a client's IP is fetched from (the socket, or x-forwarded-for header)
 
 # License
 

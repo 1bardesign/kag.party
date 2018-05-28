@@ -1,0 +1,5 @@
+{
+	"port": 8080,
+	"cache": "no-cache, must-revalidate",
+	"behind_proxy": false
+}
