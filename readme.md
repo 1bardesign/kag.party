@@ -24,3 +24,6 @@ Operates on an internal whitelist of servers in each region, randomly assigns ga
 
 npm start
 
+# License
+
+Currently unlicensed - will likely open source (MIT or similar) once things are functional.
