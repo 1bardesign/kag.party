@@ -1,0 +1,29 @@
+{
+  "name": "kag.party",
+  "version": "1.0.0",
+  "description": "a queue website for king arthur's gold",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1bardesign/kag.party.git"
+  },
+  "keywords": [
+    "game",
+    "queue",
+    "matchmaking",
+    "kag",
+    "web"
+  ],
+  "author": "Max Cahill",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/1bardesign/kag.party/issues"
+  },
+  "homepage": "https://kag.party",
+  "dependencies": {
+    "ws": "^5.2.0"
+  }
+}
