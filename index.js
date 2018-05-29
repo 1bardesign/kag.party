@@ -4,7 +4,7 @@
 const fs = require("fs");
 const http = require("http");
 const url = require("url");
-const static = require("node-static");
+const node_static = require("node-static");
 const WebSocket = require('ws');
 
 //cli options
@@ -33,15 +33,16 @@ class GamemodeQueue {
 		this.done = false
 		this.time_to_start = this.gamemode.timers.play_maximum
 		this.dirty = false
+		this.remade = false
 	}
 
-	//add a player
-	add(p) {
+	//player handling
+	add_player(p) {
 		this.players.push(p)
 		this.dirty = true
 	}
 
-	remove(p) {
+	remove_player(p) {
 		//remove a player
 		let i = this.players.indexOf(p);
 		if (i != -1) {
@@ -50,6 +51,7 @@ class GamemodeQueue {
 		}
 	}
 
+	//message sending
 	send(message) {
 		this.players.forEach((p) => {
 			//send message to each player's websocket
@@ -73,10 +75,14 @@ class GamemodeQueue {
 			players: this.players.map((p) => {
 				return p.name;
 			}),
-			time_to_start: this.time_to_start
+			time_to_start: this.time_to_start,
+			remade: this.remade
 		};
 
 		send(JSON.stringify(m));
+
+		//sent at least once
+		this.remade = false;
 	}
 
 	//logic to start the game
@@ -169,13 +175,12 @@ class Gamemode {
 	//convert region list to putative queue count
 	region_list_queue_count(region_list) {
 		//players "reasonably" in each queue
-		const players_per_queue = (this.gamemode.thresholds.play_now - 1)
+		const players_per_queue = (this.gamemode.thresholds.play_now - 1);
 		return Math.ceil(region_list.length / players_per_queue);
 	}
 
 	//split players based on region threshold
-	remake_queues()
-	{
+	remake_queues() {
 		let region_lists = this.get_region_lists();
 
 		//figure out how many queues we "should" have
@@ -190,50 +195,50 @@ class Gamemode {
 		let timer_min = this.timers.play_maximum;
 		let timer_max = this.timers.play_minimum;
 		this.queues.forEach((q) => {
-			let t = q.time_to_start
-			timer_max = Math.max(timer_max, t)
-			timer_min = Math.min(timer_min, t)
+			let t = q.time_to_start;
+			timer_max = Math.max(timer_max, t);
+			timer_min = Math.min(timer_min, t);
 		})
 
 		//remake queues
-		let new_queues = []
+		let new_queues = [];
 		for (let region in region_lists) {
-			let region_list = region_lists[region]
+			let region_list = region_lists[region];
+			//figure out how many we _should_ have
 			let target_count = this.region_list_queue_count(region_list);
-			let players_per_queue = Math.ceil(region_list.length / target_count)
+			//figure out an even distribution
+			let players_per_queue = Math.ceil(region_list.length / target_count);
+			//create the new queues and redistribute players
 			for (let i = 0; i < target_count; i++) {
 				let new_queue = new GamemodeQueue(this);
-				new_queue.time_to_start = (timer_min + Math.random() * (timer_max - timer_min)); //assign random time based on prev queues
-				//transfer players
-				for(let pi = 0; pi < players_per_queue; pi++)
-				{
-					new_queue.add(region_list.pop());
+				//assign random time based on prev queues
+				new_queue.time_to_start = (timer_min + Math.random() * (timer_max - timer_min));
+				//transfer equal share of the players
+				for(let pi = 0; pi < players_per_queue; pi++) {
+					new_queue.add_player(region_list.pop());
 				}
+				//sync + notify queues were remade
+				new_queue.dirty = true;
+				new_queue.remade = true;
 			}
 		}
-		//swap them out
+		//swap them out; forgetting the old ones
 		this.queues = new_queues
 	}
 
-	add_player(player)
-	{
+	add_player(player) {
 		let queue = null;
-		if(this.queues.length == 0) //no active queues
-		{
+		if(this.queues.length == 0) {
+			//no active queues?
 			//create new queue
 			queue = new GamemodeQueue(this);
 			this.queues.push(queue);
-		}
-		else if(this.players.length < this.thresholds.multi_queue)
-		{
+		} else if(this.players.length < this.thresholds.multi_queue) {
 			//just take first queue while we're in single queue territory
 			queue = this.queues[0];
-		}
-		else
-		{
+		} else {
 			//into multi-queue territory, but have a single queue?
-			if(this.queues.length <= 1)
-			{
+			if(this.queues.length <= 1) {
 				remake_queues();
 			}
 
@@ -269,24 +274,22 @@ class Gamemode {
 	}
 
 	//update all queues in the gamemode
-	tick()
-	{
-		for (let i = 0; i < this.queues.length; i++)
-		{
+	tick() {
+		for (let i = 0; i < this.queues.length; i++) {
 			let queue = this.queues[i];
 			//update and remove if finished
 			queue.tick();
-			if (queue.done)
-			{
-				this.queues.splice(i--, 1)
+			if (queue.done) {
+				this.queues.splice(i--, 1);
 			}
 		}
 	}
 }
 
-//websocket server
+//the websocket server (run behind our http server)
 const wss = new WebSocket.Server({ noServer: true });
 
+//ws connection handling
 wss.on('connection', function connection(ws, req) {
 	//new ws connection
 
@@ -297,7 +300,7 @@ wss.on('connection', function connection(ws, req) {
 	}
 
 	//make note of this socket
-	console.log(log_start, "connected");
+	console.log("connected");
 
 	ws.on('message', function ws_message(data) {
 		//handle a message from this socket
@@ -309,7 +312,7 @@ wss.on('connection', function connection(ws, req) {
 });
 
 //static file server from public/
-const static_serve = new static.Server("./public", {
+const static_serve = new node_static.Server("./public", {
 	cache: config.cache,
 })
 

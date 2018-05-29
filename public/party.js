@@ -1,28 +1,43 @@
+"use strict"
+
 //parse the query string for args
-function query_string(q,s) {
-	s = s ? s : window.location.search;
-	let re = new RegExp('&'+q+'(?:=([^&]*))?(?=&|$)','i');
-	return (s=s.replace(/^?/,'&').match(re)) ? (typeof s[1] == 'undefined' ? '' : decodeURIComponent(s[1])) : undefined;
+function query_string(q) {
+	let s = window.location + "";
+	let re = new RegExp('&?'+q+'(?:=([^&]*))?(?=&|$)','i');
+	let matches = s.match(re);
+	return matches ? (matches[1] == undefined ? '' : decodeURIComponent(matches[1])) : undefined;
 }
 
-let region = query_string("region")
-let mode = "CTF" //TODO: query_string("mode") + support multi mode
+let region = (query_string("region") || "US")
+let mode = (query_string("mode") || "CTF")
 let mods = (query_string("mods") == "true")
-let mods = query_string("mods")
+let official = (query_string("official") == "true")
+
+console.log("region", region, "mode", mode, "mods", mods, "official", official)
 
 //build the ws url + connect
 let url = "ws://" + window.location.hostname + ":" + window.location.port + "/ws";
 let ws = new WebSocket( url );
 ws.addEventListener("open", function (event) {
-	//connected
-	ws.send("Hello Server, I'll close in a second!");
+	//connected + loaded
+	ws.send(JSON.stringify({
+		type: "ready"
+	}));
 	//
 	ws.addEventListener("close", function (event) {
 
 	})
 	//update state from server
 	ws.addEventListener("message", function (event) {
-		let message = event.data;
+		let message;
+		try{
+			message = JSON.parse(event.data);
+		} catch(e) {
+			console.error("JSON parse failure: ", e);
+			ws.close();
+			return;
+		}
+
 	})
 	//
 	setTimeout(function() {
