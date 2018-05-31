@@ -88,10 +88,12 @@ class Server {
 				return
 			}
 
-			this.valid = response.connectable;
-			this.name = response.name;
-			this.players = response.currentPlayers;
-			this.mods = response.usingMods;
+			this.valid = response.serverStatus.connectable;
+			this.name = response.serverStatus.name;
+			this.players = response.serverStatus.currentPlayers;
+			this.mods = response.serverStatus.usingMods;
+
+			//console.log("server update: ", this.link, this.valid, this.players, this.name)
 		})
 	}
 
@@ -315,19 +317,19 @@ class Matchmaker {
 	gather_players_for(player) {
 		const limit = this.thresholds.play_now
 		//initially filter for N players in same region
-		let players = this.players.filter((p) => {
+		let gather_players = this.players.filter((p) => {
 			return p.region == player.region
 		}).slice(0, limit)
 		//linear search through remaining players (in wait order)
 		let i = 0;
-		while (players.length < limit && i < this.players.length) {
+		while (gather_players.length < limit && i < this.players.length) {
 			let p = this.players[i++];
-			let added = (players.indexOf(p) != -1);
+			let added = (gather_players.indexOf(p) != -1);
 			if (!added) {
-				players.push(p);
+				gather_players.push(p);
 			}
 		}
-		return players;
+		return gather_players;
 	}
 
 	//schedule games in the gamemode
@@ -337,7 +339,7 @@ class Matchmaker {
 			return (!p.connected || !p.ready)
 		}).forEach((p) => {
 			console.log("removing disconnected player ", p.name);
-			remove_player(p);
+			this.remove_player(p);
 		})
 
 		if (this.players.length == 0) {
@@ -365,8 +367,8 @@ class Matchmaker {
 					max_wait_time >= this.timers.wait_max
 				) {
 					//gather longest-waiting players and send em off
-					let players = gather_players_for(this.players[0])
-					start(players);
+					let players = this.gather_players_for(this.players[0])
+					this.start(players);
 					console.log("starting game for ", players.map((p) => {return p.name}))
 				}
 			}
@@ -412,7 +414,7 @@ let gamemodes = [
 			play_min: 2,
 		},
 		timers: {
-			wait_max: (2 * 60),
+			wait_max: 30,//(2 * 60),
 			wait_min: 10,
 		},
 		servers: [
@@ -432,7 +434,7 @@ let gamemodes = [
 			play_min: 4,
 		},
 		timers: {
-			wait_max: (2 * 60),
+			wait_max: 30,//(2 * 60),
 			wait_min: 10,
 		},
 		servers: [
@@ -451,7 +453,7 @@ let gamemodes = [
 			play_min: 4,
 		},
 		timers: {
-			wait_max: (2 * 60),
+			wait_max: 30,//(2 * 60),
 			wait_min: 10,
 		},
 		servers: [
