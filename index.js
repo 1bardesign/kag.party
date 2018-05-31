@@ -29,7 +29,7 @@ const WebSocket = require('ws');
 function request(url, cb)
 {
 	let data = '';
-	(url.indexOf("https://") == https : http).get(url, (resp) => {
+	(url.indexOf("https://") == 0 ? https : http).get(url, (resp) => {
 		resp.on('data', (chunk) => {
 			data += chunk;
 		});
@@ -110,7 +110,7 @@ class Player {
 		//TODO: fetch rank from db based on id here
 		this.rank = 0;
 
-		this.name = "Anonymous";
+		this._name = "";
 		this.region = null;
 		this.mode = null;
 		this.join_time = -1;
@@ -124,12 +124,23 @@ class Player {
 		return (this.join_time < 0) ? 0 : ((Date.now() - this.join_time) / 1000);
 	}
 
+	//transparent name formatting
+	//empty name gets replaced with anonymous
+	get name() {
+		return ((this._name == "") ? "(Anonymous)" : this._name);
+	}
+	set name(v) {
+		this._name = v;
+	}
+
+	//send data
 	send(data) {
 		if (!this.connected) return;
 
 		this.socket.send(JSON.stringify(data));
 	}
 
+	//receive data
 	receive(message) {
 		if (!this.connected) return;
 
@@ -160,9 +171,9 @@ class Player {
 		}
 
 		//TODO: track name changes?
-
 	}
 
+	//socket broke
 	disconnect() {
 		this.socket.close();
 		this.connected = false;
@@ -193,34 +204,23 @@ class Matchmaker {
 		this.players = [];
 		this.servers = args.servers;
 
-		this.time_to_start = -1;
-
 		this.dirty = false;
 
 		//keep servers up to date in the background; query 1 each interval
 		//TODO: probably stagger this to smooth bandwidth spiking
+		let _matchmaker = this;
 		this._server_update_i = 0;
 		this.server_update_interval = setInterval(function() {
-			let i = this._server_update_i;
+			let i = _matchmaker._server_update_i;
 			//poll api for server info
-			let s = this.servers[i];
+			let s = _matchmaker.servers[i];
 			s.update();
 			//iterate and wrap
-			i = (i + 1) % this.servers.length;
-			this._server_update_i = i;
+			i = (i + 1) % _matchmaker.servers.length;
+			_matchmaker._server_update_i = i;
 		}, 5000);
 		this.server_update_interval.unref();
 
-	}
-
-	//timer handling
-	get time_to_start() {
-		return (this._end_time - Date.now()) / 1000
-	}
-
-	set time_to_start(t) {
-		this._end_time = Date.now() + (t * 1000)
-		this.dirty = true
 	}
 
 	//map of list of players in each region
@@ -238,6 +238,7 @@ class Matchmaker {
 
 	add_player(player) {
 		player.ready = true;
+		player.matchmaker = this;
 
 		this.players.push(player);
 		this.dirty = true;
@@ -247,6 +248,7 @@ class Matchmaker {
 		let i = this.players.indexOf(player);
 		if (i != -1) {
 			player.ready = false;
+			player.matchmaker = null;
 
 			this.players.splice(i, 1);
 			this.dirty = true;
@@ -260,12 +262,16 @@ class Matchmaker {
 		})
 	}
 
-
 	//logic to sync info to all players
 	sync() {
-		send_all({
+		this.send_all({
 			type: "queue sync",
-			players: this.players.map(p => {name: p.name, region: p.region})
+			players: this.players.map(p => {
+				return {
+					name: p.name,
+					region: p.region
+				};
+			})
 		});
 	}
 
@@ -294,8 +300,9 @@ class Matchmaker {
 			//send them a game
 			p.send({
 				type: "start game",
+				name: server.name,
 				//TODO: wrap this link in a click tracking link per-player to detect bad actors + get click-through stats
-				server: server.link
+				link: server.link
 			});
 			//remove the players from the gamemode (they've been handled)
 			this.remove_player(p);
@@ -329,6 +336,7 @@ class Matchmaker {
 		this.players.filter((p) => {
 			return (!p.connected || !p.ready)
 		}).forEach((p) => {
+			console.log("removing disconnected player ", p.name);
 			remove_player(p);
 		})
 
@@ -340,35 +348,28 @@ class Matchmaker {
 		//update state if it's changed
 		if(this.dirty) {
 			this.dirty = false;
-			sync();
+			this.sync();
 		}
 
-		//players are sorted on wait time because of FIFO add
-		let max_wait_time = this.players[0].wait_time;
+		if(this.players.length >= this.thresholds.play_min) {
+			//players are sorted on wait time because of FIFO add
+			let max_wait_time = this.players[0].wait_time;
 
-		if(this.players.length > this.thresholds.play_min) {
 			//wait at least this long
-			if (max_wait_time > this.timers.wait_min)
+			if (max_wait_time >= this.timers.wait_min)
 			{
 				if(
 					//got enough players to get a game going
-					this.players.length > this.thresholds.play_now ||
+					this.players.length >= this.thresholds.play_now ||
 					//waited too long
-					max_wait_time > this.timers.wait_max
+					max_wait_time >= this.timers.wait_max
 				) {
 					//gather longest-waiting players and send em off
-					start(gather_players_for(this.players[0]));
+					let players = gather_players_for(this.players[0])
+					start(players);
+					console.log("starting game for ", players.map((p) => {return p.name}))
 				}
 			}
-		}
-
-		//timer expired or filled out players
-		if(this.players.length > this.thresholds.play_now || this.thresholds <= 0) {
-
-		}
-		//got enough players to step down the timer
-		else if(this.time_to_start > this.timer_wait_min && this.players.length > this.gamemode.thresholds.play_min) {
-			this.time_to_start = this.gamemode.timer_wait_min;
 		}
 	}
 }
@@ -404,15 +405,15 @@ class Matchmaker {
 
 //actual
 let gamemodes = [
-	new Gamemode({
+	new Matchmaker ({
 		name: "TDM",
 		thresholds: {
 			play_now: 6,
 			play_min: 2,
 		},
 		timers: {
-			wait_max: (5 * 60),
-			wait_min: (1 * 60),
+			wait_max: (2 * 60),
+			wait_min: 10,
 		},
 		servers: [
 			new Server("EU", "138.201.55.232", 10600),
@@ -424,15 +425,15 @@ let gamemodes = [
 			new Server("AU", "108.61.212.78", 10763 )
 		]
 	}),
-	new Gamemode({
+	new Matchmaker ({
 		name: "CTF",
 		thresholds: {
 			play_now: 10,
 			play_min: 4,
 		},
 		timers: {
-			wait_max: (5 * 60),
-			wait_min: (1 * 60),
+			wait_max: (2 * 60),
+			wait_min: 10,
 		},
 		servers: [
 			new Server("EU", "138.201.55.232", 10592),
@@ -443,15 +444,15 @@ let gamemodes = [
 			new Server("AU", "108.61.212.78", 10649 )
 		]
 	}),
-	new Gamemode({
+	new Matchmaker ({
 		name: "TTH",
 		thresholds: {
 			play_now: 10,
 			play_min: 4,
 		},
 		timers: {
-			wait_max: (5 * 60),
-			wait_min: (1 * 60),
+			wait_max: (2 * 60),
+			wait_min: 10,
 		},
 		servers: [
 			new Server("EU", "138.201.55.232", 10595),
@@ -473,6 +474,9 @@ update_interval.unref();
 //the websocket server (run behind our http server)
 const wss = new WebSocket.Server({ noServer: true });
 
+//(collection of all players)
+let all_players = [];
+
 //ws connection handling
 wss.on('connection', function connection(ws, req) {
 	//new ws connection
@@ -484,6 +488,12 @@ wss.on('connection', function connection(ws, req) {
 		ip = req.headers['x-forwarded-for'].split(/\s*,\s*/)[0];
 	}
 
+	//create the player
+	let player = new Player(ws, ip);
+	//add to players collection
+	all_players.push(player);
+
+	//send them info on what gamemodes/regions are available
 	ws.send(JSON.stringify({
 		type: "available",
 		entries: gamemodes.map((g) => {
@@ -495,19 +505,48 @@ wss.on('connection', function connection(ws, req) {
 					}
 					return a;
 				}, [])
-			}
+			};
 		})
-	}))
+	}));
 
+	//
 	ws.on('message', function ws_message(data) {
-		//handle a message from this socket
+		console.log(data);
+		let old_ready = player.ready;
+		player.receive(data);
+		//put into right gamemode on
+		if (player.ready && !old_ready) {
+			console.log("player", player.name, "ready");
+
+			for (let i = 0; i < gamemodes.length; i++) {
+				let mode = gamemodes[i]
+				if (mode.name == player.mode) {
+					mode.add_player(player);
+					console.log("player added to", mode.name);
+					console.log("current players ", mode.players.length);
+					break;
+				}
+			}
+		}
 	});
 
 	ws.on('close', function ws_message(data) {
-		//remove this socket
+		//remove from gamemode if it exists
+		if (player.matchmaker) {
+			player.matchmaker.remove_player(player);
+		}
+		//remove player from players collection
+		let i = all_players.indexOf(player);
+		if (i != -1) {
+			all_players.splice(i, 1);
+		}
+		//mark disconnected
+		player.connected = false;
+
+		console.log("player", player.name, "disconnected");
 	});
 
-	//(required for timeouts to work)
+	//(required for timeout handling to work)
 	ws.is_alive = true;
 	ws.on('pong', function heartbeat() {
 		this.is_alive = true;
@@ -524,7 +563,7 @@ const timeout_interval = setInterval(function ping() {
 		ws.ping(() => {});
 	});
 }, config.timeout);
-timeout_interval.unref();
+timeout_interval.unref(); //(don't stay alive just for this)
 
 ///////////////////////////////////////////////////////////////////////////////
 //static file server from public/
@@ -536,9 +575,9 @@ const static_serve = new node_static.Server("./public", {
 const server = http.createServer((req, res) => {
 	const pathname = url.parse(req.url).pathname;
 	if (pathname == "/ws") {
-		//establish websocket connection incoming
+		//(websocket connection incoming, handled by upgrade below)
 	} else {
-		//let static server handle it
+		//otherwise, let static file server handle it
 		req.addListener('end', () => {
 			static_serve.serve(req, res, (err, result) => {
 				if (err) {
@@ -546,7 +585,7 @@ const server = http.createServer((req, res) => {
 					res.writeHead(err.status, err.headers);
 					res.end();
 				} else {
-					//static file served
+					//success
 				}
 			});
 		}).resume();
@@ -557,7 +596,8 @@ const server = http.createServer((req, res) => {
 server.on('upgrade', function upgrade(request, socket, head) {
 	const pathname = url.parse(request.url).pathname;
 
-	if (pathname === '/ws') {
+	if (pathname == '/ws') {
+		//(hand off to wss, emit the connection event)
 		wss.handleUpgrade(request, socket, head, (ws) => {
 			wss.emit('connection', ws, request);
 		});
@@ -572,4 +612,5 @@ server.on('clientError', (err, socket) => {
 	socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
 });
 
+//go!
 server.listen(config.port);
