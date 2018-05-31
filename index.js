@@ -30,6 +30,19 @@ function http_request(url, cb)
 {
 	let data = '';
 	(url.indexOf("https://") == 0 ? https : http).get(url, (resp) => {
+		const statusCode = resp.statusCode;
+		let error;
+		if (statusCode !== 200) {
+			error = new Error(`Request Failed.\nStatus Code: ${statusCode}`);
+		}
+		if (error) {
+			//tell the caller
+			cb(error, "", resp);
+			// consume response data to free up memory
+			res.resume();
+			return;
+		}
+
 		resp.on('data', (chunk) => {
 			data += chunk;
 		});
@@ -140,6 +153,11 @@ class Server {
 
 	update() {
 		http_request(this.api_url, (e, json, resp) => {
+			if(e) {
+				console.error("error reading api: ", e);
+				return;
+			}
+
 			let response = null;
 			try {
 				response = JSON.parse(json);

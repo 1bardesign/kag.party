@@ -21,6 +21,9 @@ let uinode = null;
 //(filled in by "available" packet)
 let available_gamemodes = {};
 
+//filled in when we've loaded
+let can_update = false; 
+
 
 function send(obj) {
 	ws.send(JSON.stringify(obj));
@@ -95,10 +98,11 @@ function wait_for_entries()
 
 function choose_options()
 {
-	let ready_str = (chosen.mode && chosen.region) ?
-		`<br>
-		<button onclick="set_ready();">Ready!</button>` :
-		"";
+	let ready_str = ""
+	if (chosen.mode && chosen.region)
+	{
+		ready_str = `<br>\n<button onclick="set_ready();">Ready!</button>`;
+	}
 
 	uinode.innerHTML = `
 		<input type="text" id="name" placeholder="(Anonymous)" value="${chosen.name}">
@@ -192,7 +196,7 @@ let states = [
 ];
 
 function update() {
-	if (states.length > 0) {
+	if (states.length > 0 && can_update) {
 		(states[0])();
 	}
 }
@@ -257,5 +261,12 @@ window.addEventListener("load", function(event) {
 	//pull in page-resident globals
 	uinode = document.getElementById("ui");
 
+	can_update = true;
+
 	update();
+
+	//sync intial stuff from query
+	if(chosen.mode || chosen.region) {
+		sync();
+	}
 });
