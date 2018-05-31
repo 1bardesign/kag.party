@@ -101,6 +101,8 @@ function choose_options()
 		"";
 
 	uinode.innerHTML = `
+		<input type="text" id="name" placeholder="(Anonymous)" value="${chosen.name}">
+		<br>
 		<button onclick="set_region('US');">US</button>
 		<button onclick="set_region('EU');">EU</button>
 		<button onclick="set_region('AU');">AU</button>
@@ -110,6 +112,14 @@ function choose_options()
 		<button onclick="set_mode('TTH');">TTH</button>
 		${ready_str}
 	`;
+
+	//hook up elements
+	let name = document.getElementById("name");
+	if (name) {
+		name.onchange = function(e){
+			set_name(e.target.value || '');
+		}
+	}
 }
 
 function update_ready()
@@ -147,7 +157,7 @@ function update_ready()
 		if (players_list != "") {
 			players_list += " and ";
 		}
-		players_list += `${anon_count} Anonymous Players`;
+		players_list += `${anon_count} anonymous player${anon_count > 0 ? "s" : ""}`;
 	}
 
 	//add hyphen if needed

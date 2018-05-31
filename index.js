@@ -26,7 +26,7 @@ const WebSocket = require('ws');
 //cb takes (error, data)
 //	error is null on success
 //	data is the data received as a string (either all of it, or however much was recieved til the error occurred)
-function request(url, cb)
+function http_request(url, cb)
 {
 	let data = '';
 	(url.indexOf("https://") == 0 ? https : http).get(url, (resp) => {
@@ -34,10 +34,10 @@ function request(url, cb)
 			data += chunk;
 		});
 		resp.on('end', () => {
-			cb(null, data);
+			cb(null, data, resp);
 		});
 	}).on("error", (err) => {
-		cb(err, data);
+		cb(err, data, null);
 	});
 }
 
@@ -50,11 +50,71 @@ let config_defaults = {
 	cache: 3600,
 	timeout: 5000,
 	behind_proxy: false,
+	salt: "replace_me",
 };
 for (let name in config_defaults) {
 	if (config[name] == undefined) {
 		config[name] = config_defaults[name];
 	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//stats for this instance
+
+let stats = {
+	//games played counter
+	games_played_total: 0,
+	games_played_permode: {
+		CTF: 0,
+		TDM: 0,
+		TTH: 0
+	},
+	//
+	players_total: 0,
+	players_permode: {
+		CTF: 0,
+		TDM: 0,
+		TTH: 0
+	},
+	//moving average
+	average_wait: 0,
+	average_wait_samples: 0,
+	average_wait_samples_max: 50,
+}
+
+function stats_add_game(mode) {
+	stats.games_played_total++;
+	if(stats.games_played_permode[mode] != undefined) {
+		stats.games_played_permode[mode]++;
+	}
+}
+
+function stats_add_player(mode) {
+	stats.players_total++;
+	if(stats.players_permode[mode] != undefined) {
+		stats.players_permode[mode]++;
+	}
+}
+
+function add_wait_time(sample) {
+	stats.average_wait_samples = Math.min(stats.average_wait_samples_max, stats.average_wait_samples + 1);
+	const count = stats.average_wait_samples;
+	stats.average_wait = ((stats.average_wait * (count - 1)) + sample) / count;
+}
+
+function print_stats() {
+	console.log(stats);
+}
+
+function send_stats(ws) {
+	ws.send(JSON.stringify({
+		type: "stats",
+		stats: {
+			average_wait: stats.average_wait,
+			games_played_total: stats.games_played_total,
+			players_total: stats.players_total,
+		}
+	}))
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -79,12 +139,13 @@ class Server {
 	}
 
 	update() {
-		request(this.api_url, (e, json) => {
+		http_request(this.api_url, (e, json, resp) => {
 			let response = null;
 			try {
 				response = JSON.parse(json);
 			} catch (e) {
-				console.error("bad json from api: ", json);
+				console.error("bad json from api: ", resp, json);
+				console.error("parse result: ", e);
 				return
 			}
 
@@ -308,6 +369,8 @@ class Matchmaker {
 			});
 			//remove the players from the gamemode (they've been handled)
 			this.remove_player(p);
+			//disconnect them (they'll reconnect when they want to play again)
+			p.disconnect();
 		});
 
 		//TODO: stats here
@@ -489,6 +552,8 @@ wss.on('connection', function connection(ws, req) {
 	if (config.behind_proxy) {
 		ip = req.headers['x-forwarded-for'].split(/\s*,\s*/)[0];
 	}
+	ip = "" + ip;
+	console.log("player connection from", ip);
 
 	//create the player
 	let player = new Player(ws, ip);
