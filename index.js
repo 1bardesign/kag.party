@@ -1,45 +1,58 @@
 "use strict"
 
-//TODO: https
+///////////////////////////////////////////////////////////////////////////////
+//deps
+
 const fs = require("fs");
-const http = require("http");
+const http = require("http"); //TODO: https, or ensure works behind https proxy
 const url = require("url");
 const node_static = require("node-static");
 const WebSocket = require('ws');
 
+///////////////////////////////////////////////////////////////////////////////
 //cli options
+
 const config = JSON.parse(fs.readFileSync("./config.json"));
-//defaults
-let defaults = {
+let config_defaults = {
 	port: 8000,
 	cache: 3600,
+	timeout: 5000,
 	behind_proxy: false,
 };
-for (let name in defaults) {
+for (let name in config_defaults) {
 	if (config[name] == undefined) {
-		config[name] = defaults[name];
+		config[name] = config_defaults[name];
 	}
 }
 
-//client class
-class Client {
-	constructor() {}
+///////////////////////////////////////////////////////////////////////////////
+//actual queue handling logic for kag.party
+
+//player
+class Player {
+	constructor(socket) {
+		this.socket = socket;
+		this.address = socket.address;
+		this.name = "Anonymous";
+		this.region = null;
+	}
 }
 
-class GamemodeQueue {
+//queue for a gamemode
+class GameQueue {
 	constructor(gamemode) {
-		this.gamemode = gamemode
-		this.players = []
-		this.done = false
-		this.time_to_start = this.gamemode.timers.play_maximum
-		this.dirty = false
-		this.remade = false
+		this.gamemode = gamemode;
+		this.players = [];
+		this.done = false;
+		this.time_to_start = this.gamemode.timers.play_maximum;
+		this.dirty = false;
+		this.remade = false;
 	}
 
 	//player handling
 	add_player(p) {
-		this.players.push(p)
-		this.dirty = true
+		this.players.push(p);
+		this.dirty = true;
 	}
 
 	remove_player(p) {
@@ -47,7 +60,7 @@ class GamemodeQueue {
 		let i = this.players.indexOf(p);
 		if (i != -1) {
 			this.players.splice(i, 1);
-			this.dirty = true
+			this.dirty = true;
 		}
 	}
 
@@ -142,7 +155,7 @@ class Gamemode {
 	constructor(args) {
 		//fill out default args
 		if(!args || !args.thresholds || !args.timers || !args.servers) {
-			throw "bad args to GamemodeQueue ctor"
+			throw "bad args to Gamemode ctor"
 		}
 		//player thresholds
 		this.thresholds = {}
@@ -210,7 +223,7 @@ class Gamemode {
 			let players_per_queue = Math.ceil(region_list.length / target_count);
 			//create the new queues and redistribute players
 			for (let i = 0; i < target_count; i++) {
-				let new_queue = new GamemodeQueue(this);
+				let new_queue = new GameQueue(this);
 				//assign random time based on prev queues
 				new_queue.time_to_start = (timer_min + Math.random() * (timer_max - timer_min));
 				//transfer equal share of the players
@@ -231,7 +244,7 @@ class Gamemode {
 		if(this.queues.length == 0) {
 			//no active queues?
 			//create new queue
-			queue = new GamemodeQueue(this);
+			queue = new GameQueue(this);
 			this.queues.push(queue);
 		} else if(this.players.length < this.thresholds.multi_queue) {
 			//just take first queue while we're in single queue territory
@@ -294,7 +307,8 @@ wss.on('connection', function connection(ws, req) {
 	//new ws connection
 
 	//get the address
-	let ip = req.connection.remoteAddress;
+	let socket = req.connection;
+	let ip = socket.remoteAddress;
 	if (config.behind_proxy) {
 		ip = req.headers['x-forwarded-for'].split(/\s*,\s*/)[0];
 	}
@@ -309,8 +323,27 @@ wss.on('connection', function connection(ws, req) {
 	ws.on('close', function ws_message(data) {
 		//remove this socket
 	});
+
+	//(required for timeouts to work)
+	ws.is_alive = true;
+	ws.on('pong', function heartbeat() {
+		this.is_alive = true;
+	});
 });
 
+//timeout inactive sockets (doesn't keep the event loop alive)
+const timeout_interval = setInterval(function ping() {
+	wss.clients.forEach((ws) => {
+		if (!ws.is_alive) {
+			return ws.terminate();
+		}
+		ws.is_alive = false;
+		ws.ping(() => {});
+	});
+}, config.timeout);
+timeout_interval.unref();
+
+///////////////////////////////////////////////////////////////////////////////
 //static file server from public/
 const static_serve = new node_static.Server("./public", {
 	cache: config.cache,
