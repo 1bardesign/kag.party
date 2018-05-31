@@ -22,21 +22,22 @@ const WebSocket = require('ws');
 
 //helpers
 
+//perform a http request
+//cb takes (error, data)
+//	error is null on success
+//	data is the data received as a string (either all of it, or however much was recieved til the error occurred)
 function request(url, cb)
 {
+	let data = '';
 	(url.indexOf("https://") == https : http).get(url, (resp) => {
-		let data = '';
-
-		// A chunk of data has been recieved.
 		resp.on('data', (chunk) => {
 			data += chunk;
 		});
-		// The whole response has been received. Print out the result.
 		resp.on('end', () => {
-			cb(data);
+			cb(null, data);
 		});
 	}).on("error", (err) => {
-		console.log("Error: " + err.message);
+		cb(err, data);
 	});
 }
 
@@ -60,17 +61,38 @@ for (let name in config_defaults) {
 //player
 
 class Server {
-	constructor(region, address) {
+	constructor(region, ip, port) {
 		this.region = region;
-		this.address = address;
+		this.ip = ip;
+		this.port = port;
+
+		//updated from API
 		this.name = "";
 		this.players = 100;
+		this.mods = false;
+		this.valid = false;
+
+		this.link = `kag://${this.ip}:${this.port}`;
+		this.api_url = `https://api.kag2d.com/v1/game/thd/kag/server/${this.ip}/${this.port}/status`;
 
 		this.update();
 	}
 
 	update() {
+		request(this.api_url, (e, json) => {
+			let response = null;
+			try {
+				response = JSON.parse(json);
+			} catch (e) {
+				console.error("bad json from api: ", json);
+				return
+			}
 
+			this.valid = response.connectable;
+			this.name = response.name;
+			this.players = response.currentPlayers;
+			this.mods = response.usingMods;
+		})
 	}
 
 }
@@ -169,10 +191,26 @@ class Matchmaker {
 		this.timers.wait_min = args.timers.wait_min || (1 * 60);
 		//other members
 		this.players = [];
+		this.servers = args.servers;
 
 		this.time_to_start = -1;
 
 		this.dirty = false;
+
+		//keep servers up to date in the background; query 1 each interval
+		//TODO: probably stagger this to smooth bandwidth spiking
+		this._server_update_i = 0;
+		this.server_update_interval = setInterval(function() {
+			let i = this._server_update_i;
+			//poll api for server info
+			let s = this.servers[i];
+			s.update();
+			//iterate and wrap
+			i = (i + 1) % this.servers.length;
+			this._server_update_i = i;
+		}, 5000);
+		this.server_update_interval.unref();
+
 	}
 
 	//timer handling
@@ -239,20 +277,28 @@ class Matchmaker {
 			b = b.player_count
 			return (a < b) ? -1 : (a > b) ? 1 : 0;
 		}).filter((s, i, a) => {
-			return s.player_count == a[0].player_count
+			return s.valid && s.player_count == a[0].player_count
 		});
-		//pick random one
-		let server = acceptable_servers[Math.floor(Math.random() * acceptable_servers.length)]
+
+		//report failure to find a game
+		if (acceptable_servers.length == 0) {
+			console.error("couldn't find a suitable server for a game!");
+			return;
+		}
+
+		//pick random suitable server
+		let server = acceptable_servers[Math.floor(Math.random() * acceptable_servers.length)];
 
 		//send all players to the game
 		players.forEach((p) => {
 			//send them a game
 			p.send({
 				type: "start game",
-				server: server.link //TODO: wrap this in a link per-player to track clicks + detect bad actors
+				//TODO: wrap this link in a click tracking link per-player to detect bad actors + get click-through stats
+				server: server.link
 			});
 			//remove the players from the gamemode (they've been handled)
-			this.remove_player(p)
+			this.remove_player(p);
 		});
 
 		//TODO: stats here
@@ -327,6 +373,35 @@ class Matchmaker {
 	}
 }
 
+/*
+	//server definitions
+	//could probably be moved to a config file somewhere tbh
+
+		//CTF
+			new Server("EU", "138.201.55.232", 10592),
+			new Server("EU", "138.201.55.232", 10594),
+			new Server("EU", "138.201.55.232", 10596),
+			new Server("US", "162.221.187.210", 10610),
+			new Server("US", "162.221.187.210", 10617),
+			new Server("AU", "108.61.212.78", 10649 ),
+
+		//TDM
+			new Server("EU", "138.201.55.232", 10600),
+			new Server("EU", "138.201.55.232", 10762),
+			new Server("US", "162.221.187.210", 10611),
+			new Server("US", "162.221.187.210", 10761),
+			new Server("US", "162.221.187.210", 10615),
+			new Server("AU", "108.61.212.78", 10651 ),
+			new Server("AU", "108.61.212.78", 10763 ),
+		}
+
+		//TTH
+			new Server("EU", "138.201.55.232", 10595),
+			new Server("US", "162.221.187.210", 10612),
+			new Server("US", "162.221.187.210", 10616),
+			new Server("AU", "108.61.212.78", 10650 ),
+*/
+
 //actual
 let gamemodes = [
 	new Gamemode({
@@ -334,32 +409,57 @@ let gamemodes = [
 		thresholds: {
 			play_now: 6,
 			play_min: 2,
-			multi_queue: 4,
 		},
 		timers: {
 			wait_max: (5 * 60),
 			wait_min: (1 * 60),
 		},
 		servers: [
-			new Server("US", "", "")
+			new Server("EU", "138.201.55.232", 10600),
+			new Server("EU", "138.201.55.232", 10762),
+			new Server("US", "162.221.187.210", 10611),
+			new Server("US", "162.221.187.210", 10761),
+			new Server("US", "162.221.187.210", 10615),
+			new Server("AU", "108.61.212.78", 10651 ),
+			new Server("AU", "108.61.212.78", 10763 )
 		]
 	}),
-	/*
 	new Gamemode({
 		name: "CTF",
 		thresholds: {
 			play_now: 10,
 			play_min: 4,
-			multi_queue: 8,
 		},
 		timers: {
 			wait_max: (5 * 60),
 			wait_min: (1 * 60),
 		},
 		servers: [
-			new Server("US", "", "")
+			new Server("EU", "138.201.55.232", 10592),
+			new Server("EU", "138.201.55.232", 10594),
+			new Server("EU", "138.201.55.232", 10596),
+			new Server("US", "162.221.187.210", 10610),
+			new Server("US", "162.221.187.210", 10617),
+			new Server("AU", "108.61.212.78", 10649 )
 		]
-	}),*/
+	}),
+	new Gamemode({
+		name: "TTH",
+		thresholds: {
+			play_now: 10,
+			play_min: 4,
+		},
+		timers: {
+			wait_max: (5 * 60),
+			wait_min: (1 * 60),
+		},
+		servers: [
+			new Server("EU", "138.201.55.232", 10595),
+			new Server("US", "162.221.187.210", 10612),
+			new Server("US", "162.221.187.210", 10616),
+			new Server("AU", "108.61.212.78", 10650 )
+		]
+	})
 ]
 
 //update at 10hz
@@ -389,7 +489,12 @@ wss.on('connection', function connection(ws, req) {
 		entries: gamemodes.map((g) => {
 			return {
 				name: g.name,
-				regions:
+				regions: g.servers.reduce((a, s) => {
+					if (a.indexOf(s.region) == -1) {
+						a.push(s.region);
+					}
+					return a;
+				}, [])
 			}
 		})
 	}))
