@@ -2,5 +2,6 @@
 	"port": 8080,
 	"cache": "no-cache, must-revalidate",
 	"behind_proxy": false,
-	"timeout": 5000
+	"timeout": 5000,
+	"salt": "replace_me"
 }

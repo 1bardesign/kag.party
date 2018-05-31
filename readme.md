@@ -46,6 +46,11 @@ Handled by an out-of-repo config file; examples configs are in `config-example-*
 	cache control header (consider "no-cache, must-revalidate" for dev, ~3600 for prod)
 - `"behind_proxy"` <br>
 	whether we're behind a proxy or not; determines where a client's IP is fetched from (the socket, or x-forwarded-for header)
+- `"timeout"` <br>
+	the maximum time without a ping response that a socket is kept alive for, in milliseconds
+- `"salt"` <br>
+	a string used as part of the salt used in any hashing operations (extra fragments are used in code as a contingency about this being empty)
+
 
 # License
 
